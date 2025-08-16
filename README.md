@@ -989,19 +989,141 @@ This is an inhouse benchmark which contain 1493 pdf images with 100 languages.
 
 
 # Quick Start
+
+## Quick Overview
+To get started with dots.ocr, follow these main steps:
+1. **Install dependencies and setup environment** (Steps 1-7 below)
+2. **Download model weights** and set up environment variables
+3. **Register DotsOCR with vLLM** and launch the server
+4. **Run demos** or use the document parser
+
+> **Important**: Always activate the conda environment (`conda activate dots_ocr`) before running any dots.ocr commands.
+
 ## 1. Installation
+
+### Prerequisites
+- NVIDIA GPU with CUDA support
+- Linux (Ubuntu 22.04 recommended)
+- Python 3.12
+- Conda or Miniconda
+
 ### Install dots.ocr
+
+#### Step 1: Set up Conda Environment
 ```shell
 conda create -n dots_ocr python=3.12
 conda activate dots_ocr
+```
 
+#### Step 2: Clone Repository
+```shell
 git clone https://github.com/rednote-hilab/dots.ocr.git
 cd dots.ocr
-
-# Install pytorch, see https://pytorch.org/get-started/previous-versions/ for your cuda version
-pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128
-pip install -e .
 ```
+
+#### Step 3: Install CUDA Toolkit 12.8
+```shell
+# Install CUDA Toolkit 12.8
+sudo apt update
+wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
+sudo dpkg -i cuda-keyring_1.1-1_all.deb
+sudo apt update
+sudo apt install cuda-toolkit-12-8 -y
+
+# Set CUDA environment variables permanently
+echo 'export CUDA_HOME=/usr/local/cuda' >> ~/.bashrc
+echo 'export PATH=$CUDA_HOME/bin:$PATH' >> ~/.bashrc
+echo 'export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH' >> ~/.bashrc
+source ~/.bashrc
+```
+
+#### Step 4: Install PyTorch 2.7.0 with CUDA 12.8 Support
+```shell
+# Install PyTorch 2.7.0+cu128 specifically for Python 3.12
+python -m pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128
+```
+
+#### Step 5: Install Compatible Dependencies
+```shell
+# Remove potentially conflicting packages
+pip uninstall vllm xformers outlines -y
+
+# Install compatible xformers for PyTorch 2.7.0
+pip install xformers==0.0.30
+
+# Install vLLM nightly version with PyTorch 2.7.0 support
+pip install vllm==0.9.1 --pre --extra-index-url https://wheels.vllm.ai/nightly
+
+# Upgrade outlines to resolve version conflicts
+pip install --upgrade outlines
+```
+
+#### Step 6: Install Project Dependencies and Package
+```shell
+# Install all project requirements
+pip install -r requirements.txt
+
+# Install dots.ocr in development mode
+pip install -e . --no-user
+```
+
+#### Step 7: Verify Installation
+```shell
+python -c "
+import torch
+import flash_attn
+import dots_ocr
+print(f'✅ PyTorch: {torch.__version__} (CUDA: {torch.cuda.is_available()})')
+print(f'✅ Flash Attention: {flash_attn.__version__}')
+print('✅ Dots OCR: Successfully imported')
+print('🎉 Installation complete!')
+"
+```
+
+### Installation Notes
+- **Python Version**: Must use Python 3.12 for compatibility with PyTorch 2.7.0
+- **CUDA Version**: CUDA 12.8 is required for PyTorch 2.7.0+cu128
+- **Memory Requirements**: At least 8GB GPU memory recommended
+- **Package Versions**: 
+  - PyTorch: 2.7.0+cu128
+  - flash-attn: 2.8.0.post2
+  - xformers: 0.0.30
+  - vLLM: 0.9.1 (nightly)
+
+### Troubleshooting
+If you encounter issues during installation:
+
+1. **CUDA Environment Issues**: Ensure CUDA_HOME is properly set:
+   ```shell
+   echo $CUDA_HOME  # Should output: /usr/local/cuda
+   nvcc --version   # Should show CUDA 12.8
+   ```
+
+2. **PyTorch CUDA Support**: Verify CUDA is available:
+   ```shell
+   python -c "import torch; print(torch.cuda.is_available())"
+   ```
+
+3. **Package Conflicts**: If you encounter version conflicts, recreate the conda environment:
+   ```shell
+   conda deactivate
+   conda env remove -n dots_ocr
+   # Then repeat installation steps
+   ```
+
+4. **vLLM ModuleNotFoundError**: If you get `ModuleNotFoundError: No module named 'DotsOCR'`:
+   - Ensure you're in the correct conda environment: `conda activate dots_ocr`
+   - Check that model directory name doesn't contain periods (use `DotsOCR` not `dots.ocr`)
+   - Verify environment variables are set: `echo $hf_model_path`
+   - Re-register the model with vLLM in the conda environment
+
+5. **Script Execution Issues**: For shell scripts with Windows line endings:
+   ```shell
+   # Fix line endings if needed
+   dos2unix demo/launch_model_vllm.sh
+   ```
+
+### Alternative: Docker Installation
 
 If you have trouble with the installation, try our [Docker Image](https://hub.docker.com/r/rednotehilab/dots.ocr) for an easier setup, and follow these steps:
 ```shell
@@ -1026,22 +1148,55 @@ python3 tools/download_model.py --type modelscope
 We highly recommend using vllm for deployment and inference. All of our evaluations results are based on vllm version 0.9.1.
 The [Docker Image](https://hub.docker.com/r/rednotehilab/dots.ocr) is based on the official vllm image. You can also follow [Dockerfile](https://github.com/rednote-hilab/dots.ocr/blob/master/docker/Dockerfile) to build the deployment environment by yourself. 
 
+#### Step 1: Download and Setup Model
 ```shell
-# You need to register model to vllm at first
+# Download model weights
 python3 tools/download_model.py
-export hf_model_path=./weights/DotsOCR  # Path to your downloaded model weights, Please use a directory name without periods (e.g., `DotsOCR` instead of `dots.ocr`) for the model save path. This is a temporary workaround pending our integration with Transformers.
-export PYTHONPATH=$(dirname "$hf_model_path"):$PYTHONPATH
+
+# Set up environment variables permanently
+echo '# DotsOCR environment variables' >> ~/.bashrc
+echo 'export hf_model_path=./weights/DotsOCR' >> ~/.bashrc
+echo 'export PYTHONPATH=$(dirname "$hf_model_path"):$PYTHONPATH' >> ~/.bashrc
+echo '' >> ~/.bashrc
+
+# Reload bashrc to apply environment variables
+source ~/.bashrc
+```
+
+#### Step 2: Register DotsOCR Model with vLLM
+```shell
+# Register DotsOCR model in conda environment vllm
+conda activate dots_ocr
 sed -i '/^from vllm\.entrypoints\.cli\.main import main$/a\
-from DotsOCR import modeling_dots_ocr_vllm' `which vllm`  # If you downloaded model weights by yourself, please replace `DotsOCR` by your model saved directory name, and remember to use a directory name without periods (e.g., `DotsOCR` instead of `dots.ocr`) 
+from DotsOCR import modeling_dots_ocr_vllm' `which vllm`
+```
 
-# launch vllm server
-CUDA_VISIBLE_DEVICES=0 vllm serve ${hf_model_path} --tensor-parallel-size 1 --gpu-memory-utilization 0.95  --chat-template-content-format string --served-model-name model --trust-remote-code
+> **Note:** If you downloaded model weights by yourself, please replace `DotsOCR` by your model saved directory name, and remember to use a directory name without periods (e.g., `DotsOCR` instead of `dots.ocr`). This is a temporary workaround pending our integration with Transformers.
 
-# If you get a ModuleNotFoundError: No module named 'DotsOCR', please check the note above on the saved model directory name.
+#### Step 3: Launch vLLM Server
+```shell
+# Activate conda environment and launch vllm server
+conda activate dots_ocr
+CUDA_VISIBLE_DEVICES=0 vllm serve ${hf_model_path} --tensor-parallel-size 1 --gpu-memory-utilization 0.85 --chat-template-content-format string --served-model-name model --trust-remote-code
+```
 
-# vllm api demo
+> **Important:** Always activate the `dots_ocr` conda environment before running vLLM to ensure proper module loading. If you get a `ModuleNotFoundError: No module named 'DotsOCR'`, check that you're in the correct conda environment and the model directory name doesn't contain periods.
+
+#### Step 4: Test vLLM API
+```shell
+# Test with vllm API demo
+conda activate dots_ocr
 python3 ./demo/demo_vllm.py --prompt_mode prompt_layout_all_en
 ```
+
+#### Step 5: Launch Web Demo
+```shell
+# Launch Gradio web interface
+conda activate dots_ocr
+python demo/demo_gradio.py 7860
+```
+
+Then open your browser and navigate to `http://localhost:7860` to use the web interface.
 
 ### Hugginface inference
 ```shell
@@ -1136,8 +1291,17 @@ Please refer to [CPU inference](https://github.com/rednote-hilab/dots.ocr/issues
 
 
 ## 3. Document Parse
+
+### Prerequisites
+Before running document parsing commands, ensure:
+1. **vLLM server is running** (see vLLM inference section above)
+2. **Conda environment is activated**: `conda activate dots_ocr`
+
+### vLLM-based Parsing
 **Based on vLLM server**, you can parse an image or a pdf file using the following commands:
 ```bash
+# Activate conda environment first
+conda activate dots_ocr
 
 # Parse all layout info, both detection and recognition
 # Parse a single image
@@ -1170,9 +1334,26 @@ python3 dots_ocr/parser.py demo/demo_image1.jpg --prompt prompt_grounding_ocr --
 </details>
 
 ## 4. Demo
-You can run the demo with the following command, or try directly at [live demo](https://dotsocr.xiaohongshu.com/)
+
+### Prerequisites for Demo
+Before running any demo, ensure you have:
+1. **vLLM server running** (see Step 3 in vLLM inference section above)
+2. **Conda environment activated**: `conda activate dots_ocr`
+
+### Web Interface Demo
+You can run the interactive web demo with the following command, or try directly at [live demo](https://dotsocr.xiaohongshu.com/)
 ```bash
-python demo/demo_gradio.py
+# Make sure vLLM server is running first, then:
+conda activate dots_ocr
+python demo/demo_gradio.py 7860
+```
+Then open your browser and navigate to `http://localhost:7860` to use the web interface.
+
+### Command Line Demo
+```bash
+# Test vLLM API with demo script
+conda activate dots_ocr
+python3 ./demo/demo_vllm.py --prompt_mode prompt_layout_all_en
 ```
 
 We also provide a demo for grounding ocr:

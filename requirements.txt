@@ -8,4 +8,5 @@ transformers==4.51.3
 huggingface_hub
 modelscope
 flash-attn==2.8.0.post2
+# flash-attn==2.8.2 #windows時使用
 accelerate
